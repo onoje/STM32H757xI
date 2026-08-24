@@ -1,0 +1,2 @@
+C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Middlewares/Third_Party/FatFs/src/option/syscall.c:158:7:ff_memalloc	16	static
+C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Middlewares/Third_Party/FatFs/src/option/syscall.c:170:6:ff_memfree	16	static

@@ -20,6 +20,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "decode_dma.h"
+#include "lwip.h"
+#include "network_stream.h"
 
 /** @addtogroup STM32H7xx_HAL_Examples
   * @{
@@ -33,24 +35,71 @@
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-FATFS SDFatFs;  /* File system object for SD card logical drive */
-char SDPath[4]; /* SD card logical drive path */
-FIL JPEG_File;  /* File object */
-
-uint32_t JpegProcessing_End = 0;
 static uint32_t LCD_X_Size = 0, LCD_Y_Size= 0;
+
+/* Raw JPEG buffers and their bookkeeping - shared with network_stream.c,
+   which fills them from the incoming TCP stream (see the extern
+   declarations there). Not static for that reason. */
+const uint32_t ImageRawAddr[NB_IMAGES] = { JPEG_RAW_BUFFER_0, JPEG_RAW_BUFFER_1 };
+volatile uint32_t ImageRawSize[NB_IMAGES];
+
+/* Set by network_stream.c once a full frame has landed in ImageRawAddr[idx];
+   cleared by the pipeline once it's done reading that slot, freeing it for
+   the network to reuse. This is the only handshake between the two files. */
+volatile uint8_t FrameReady[NB_IMAGES] = { 0, 0 };
+
+/* Each image gets its own dedicated, already-converted ARGB8888 framebuffer */
+static const uint32_t LcdFrameBufferAddr[NB_IMAGES] = { LCD_FRAME_BUFFER, LCD_FRAME_BUFFER_1 };
+
+/* Decode duration of each image, in ms (HAL_GetTick() / SysTick based).
+   Watch these in STM32CubeIDE's Live Expressions view while running. */
+volatile uint32_t DecodeTime_ms[NB_IMAGES] = {0};
+
+/* Time spent converting/copying the decoded image into its dedicated
+   framebuffer via DMA2D - now happens only once per image, not per loop */
+volatile uint32_t CopyTime_ms[NB_IMAGES] = {0};
+
+/* Time spent switching the LTDC layer address between the two pre-converted
+   framebuffers - this replaces the per-loop DMA2D copy */
+volatile uint32_t SwitchTime_ms[NB_IMAGES] = {0};
+
+/* Same measurement in microseconds, via the Cortex-M7 DWT cycle counter -
+   HAL_GetTick() (1ms resolution) can't measure an operation this fast */
+volatile uint32_t SwitchTime_us[NB_IMAGES] = {0};
 
 JPEG_HandleTypeDef    JPEG_Handle;
 
-static DMA2D_HandleTypeDef    DMA2D_Handle;
+/* Not static: stm32h7xx_it.c's DMA2D_IRQHandler() needs to reach this handle */
+DMA2D_HandleTypeDef    DMA2D_Handle;
 static JPEG_ConfTypeDef       JPEG_Info;
+
+/* Fully interrupt-driven decode+convert+display pipeline - no busy-wait loop
+   anywhere. Each stage is kicked off from the previous stage's HW callback:
+   JPEG decode complete -> DMA2D fill complete -> DMA2D copy complete -> show
+   this image -> next frame's decode -> ... forever. The CPU is free
+   (sleeping via __WFI()) between interrupts instead of spinning. The source
+   is now a live network stream: if the next frame hasn't arrived yet, the
+   pipeline parks in PIPE_WAITING_FRAME until network_stream.c wakes it. */
+typedef enum
+{
+  PIPE_WAITING_FRAME = 0,
+  PIPE_DECODING,
+  PIPE_FILLING,
+  PIPE_COPYING
+} PipelineState_t;
+
+static volatile PipelineState_t PipelineState = PIPE_WAITING_FRAME;
+static volatile uint32_t PipelineIdx = 0;
+static uint32_t PipelineXPos = 0, PipelineYPos = 0;
+static uint32_t PipelineDecodeTickStart = 0;
+static uint32_t PipelineCopyTickStart = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void LCD_BriefDisplay(void);
-static void LCD_FileErrorDisplay(void);
-static void DMA2D_CopyBuffer(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_t y, uint16_t xsize, uint16_t ysize, uint32_t ChromaSampling);
-static void SD_Initialize(void);
+static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d);
+static void DMA2D_StartFill(uint32_t *pDst, uint16_t xsize, uint16_t ysize, uint32_t color);
+static void DMA2D_StartCopy(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_t y, uint16_t xsize, uint16_t ysize, uint32_t ChromaSampling);
 static void MPU_Config(void);
 static void CPU_CACHE_Enable(void);
 
@@ -63,11 +112,9 @@ static void CPU_CACHE_Enable(void);
   */
 int main(void)
 {
-  uint32_t xPos = 0, yPos = 0;
-  uint8_t  lcd_status = BSP_ERROR_NONE; 
-  uint32_t file_error = 0, sd_detection_error = 0;
+  uint8_t  lcd_status = BSP_ERROR_NONE;
 
-  /* System Init, System clock, voltage scaling and L1-Cache configuration are done by CPU1 (Cortex-M7) 
+  /* System Init, System clock, voltage scaling and L1-Cache configuration are done by CPU1 (Cortex-M7)
      in the meantime Domain D2 is put in STOP mode(Cortex-M4 in deep-sleep)
   */
 
@@ -91,6 +138,12 @@ int main(void)
   /* Configure the system clock to 400 MHz */
   SystemClock_Config();
 
+  /* Enable the Cortex-M7 cycle counter (DWT) for microsecond-precision
+     timing - needed for operations faster than HAL_GetTick()'s 1ms resolution */
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
   /* When system initialization is finished, Cortex-M7 could wakeup (when needed) the Cortex-M4  by means of 
      HSEM notification or by any D2 wakeup source (SEV,EXTI..)   */  
   
@@ -100,8 +153,14 @@ int main(void)
   /*##-1- JPEG Initialization ################################################*/   
    /* Init the HAL JPEG driver */
   JPEG_Handle.Instance = JPEG;
-  HAL_JPEG_Init(&JPEG_Handle);  
-  
+  HAL_JPEG_Init(&JPEG_Handle);
+
+  /* Enable DMA2D interrupt - needed so HAL_DMA2D_Start_IT()'s completion
+     callback (DMA2D_XferCpltCallback) fires without any CPU polling/waiting */
+  HAL_NVIC_SetPriority(DMA2D_IRQn, 0x07, 0x0F);
+  HAL_NVIC_EnableIRQ(DMA2D_IRQn);
+
+
   /*##-2- LCD Configuration ##################################################*/  
   /* Initialize the LCD   */
 
@@ -123,66 +182,27 @@ int main(void)
   
   /* Display example brief   */
   LCD_BriefDisplay();
-  
-  /*##-3- Link the micro SD disk I/O driver ##################################*/
-  if(FATFS_LinkDriver(&SD_Driver, SDPath) == 0)
-  {
-    /*##-4- Init the SD Card #################################################*/
-    SD_Initialize();
-    
-    if(BSP_SD_IsDetected(0))
-    {
-      /*##-5- Register the file system object to the FatFs module ##############*/
-      if(f_mount(&SDFatFs, (TCHAR const*)SDPath, 0) == FR_OK)
-      {
-        /*##-6- Open the JPG file with read access #############################*/
-        if(f_open(&JPEG_File, "image.jpg", FA_READ) == FR_OK)
-        {
-          /*##-7- JPEG decoding with DMA (Not Blocking ) Method ################*/
-          JPEG_Decode_DMA(&JPEG_Handle, &JPEG_File, JPEG_OUTPUT_DATA_BUFFER);
-          
-          /*##-8- Wait till end of JPEG decoding and perform Input Processing in BackGround  #*/
-          do
-          {
-            
-            JpegProcessing_End = JPEG_InputHandler(&JPEG_Handle);
-            
-          }while(JpegProcessing_End == 0);
-          
-          /*##-9- Get JPEG Info  ###############################################*/
-          HAL_JPEG_GetInfo(&JPEG_Handle, &JPEG_Info);       
-          
-          /*##-10- Copy RGB decoded Data to the display FrameBuffer  ############*/
-          xPos = (LCD_X_Size - JPEG_Info.ImageWidth)/2;
-          yPos = (LCD_Y_Size - JPEG_Info.ImageHeight)/2;        
-          
-          DMA2D_CopyBuffer((uint32_t *)JPEG_OUTPUT_DATA_BUFFER, (uint32_t *)LCD_FRAME_BUFFER, xPos , yPos, JPEG_Info.ImageWidth, JPEG_Info.ImageHeight, JPEG_Info.ChromaSubsampling);
-          
-          /*##-11- Close the JPG file ##########################################*/
-          f_close(&JPEG_File);  
-        }
-        else /* Can't Open JPG file*/
-        {
-          file_error = 1;          
-        }      
-      }
-    }
-    else
-    {
-      sd_detection_error = 1;
-    }
-    
-    if((file_error != 0) || (sd_detection_error != 0))
-    {
-      /* Display error brief   */
-      LCD_FileErrorDisplay();
-      Error_Handler();
-    }
-  }
- 
-  /* Infinite loop */
+
+  /*##-3- Bring up the network and start listening for the frame stream #####*/
+  MX_LWIP_Init();
+  Network_Stream_Init();
+
+  /* No frame has arrived yet - the pipeline starts idle and is kicked into
+     PIPE_DECODING by network_stream.c the moment the first full frame lands
+     in ImageRawAddr[0] (see JPEG_Pipeline_OnFrameReceived()). Every frame
+     after that is chained the same way, from HW callbacks, forever. */
+  PipelineIdx   = 0;
+  PipelineState = PIPE_WAITING_FRAME;
+
+  /* This project's Ethernet driver is polled, not interrupt-driven: there is
+     no ETH_IRQHandler, ethernetif_input() checks the ETH DMA's RX ring
+     directly. So MX_LWIP_Process() must be called regularly - here, once
+     per __WFI() wakeup - and the 1ms SysTick interrupt alone guarantees that
+     happens at least every millisecond even with no other activity. */
   while (1)
   {
+    MX_LWIP_Process();
+    __WFI();
   }
 }
 
@@ -325,6 +345,59 @@ static void MPU_Config(void)
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
+  /* Configure RAM_D1 (AXI SRAM, 0x24000000) as Normal, non-cacheable memory.
+     This is where the linker script now places .data/.bss (including all of
+     lwIP's own memory) plus the Ethernet DMA descriptors and RX buffer pool
+     (.RxDescripSection/.TxDescripSection/.Rx_PoolSection). That memory is
+     written/read directly by the Ethernet DMA controller, which does not go
+     through the CPU's D-Cache - if this region were left cacheable, the CPU
+     and the DMA could each see a different, stale copy of the same data.
+
+     TypeExtField=MPU_TEX_LEVEL1 together with IsCacheable/IsBufferable=NOT
+     is what actually selects "Normal, non-cacheable" per the ARMv7-M MPU
+     TEX/C/B encoding. TEX_LEVEL0 with the same C/B bits instead selects
+     "Strongly Ordered" memory, which is stricter: it also forbids unaligned
+     accesses outright, and that's exactly what crashed here - a plain
+     struct field copy in lwIP's ARP code (acd_arp_reply(), a 6-byte
+     hardware-address copy) triggered a HardFault the moment it touched this
+     region, because that copy isn't naturally 4-byte aligned. */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.BaseAddress = 0x24000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* Configure D2 domain SRAM (0x30000000, SRAM1+SRAM2+SRAM3, 288KB) as
+     Normal, non-cacheable too. lwipopts.h pins lwIP's entire packet memory
+     heap here via LWIP_RAM_HEAP_POINTER (0x30004000) - a separate, fixed
+     address that CubeMX generates independently of where main.c's own
+     .data/.bss end up (that part lives in RAM_D1, region 2 above). Every
+     outgoing packet (ARP replies included) is allocated from this heap, so
+     it needs the same non-cacheable treatment as RAM_D1: without it, the
+     ETH DMA reads stale/garbage bytes straight from physical SRAM while the
+     CPU's freshly written packet data is still sitting in D-Cache. */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.BaseAddress = 0x30000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER3;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
   /* Enable the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
@@ -356,86 +429,191 @@ static void LCD_BriefDisplay(void)
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_BLUE);
   UTIL_LCD_FillRect(0, 0, LCD_X_Size, 112, UTIL_LCD_COLOR_BLUE);  
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
-  UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"JPEG Decoding from uSD Fatfs with DMA", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"JPEG Decoding from a live Ethernet stream", CENTER_MODE);
   UTIL_LCD_SetFont(&Font16);
-  UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"This example shows how to Decode (with DMA)", CENTER_MODE);
-  UTIL_LCD_DisplayStringAt(0, LINE(6), (uint8_t *)"and  display a JPEG file", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"Waiting for a TCP connection on port 5001...", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, LINE(6), (uint8_t *)"Board IP: 192.168.1.20", CENTER_MODE);
 }
 
 /**
-  * @brief  Display File access error message.
-  * @param  None
+  * @brief  Called from network_stream.c once a full JPEG frame has landed in
+  *         ImageRawAddr[idx]. Only actually kicks off a decode if the
+  *         pipeline was idle and specifically waiting on this slot - if the
+  *         pipeline is still busy with another frame, this one just sits
+  *         ready (FrameReady[idx] == 1) until the pipeline reaches it.
+  * @param  idx: which raw buffer slot just became ready
   * @retval None
   */
-static void LCD_FileErrorDisplay(void)
+void JPEG_Pipeline_OnFrameReceived(uint32_t idx)
 {
-  UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_WHITE);
-  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_RED);
-  UTIL_LCD_SetFont(&Font16);
-  UTIL_LCD_DisplayStringAtLine(26, (uint8_t *)"     Unable to open JPEG file image.jpg");
-  UTIL_LCD_DisplayStringAtLine(27, (uint8_t *)"     Please check that a jpeg file named image.jpg");
-  UTIL_LCD_DisplayStringAtLine(28, (uint8_t *)"     is stored on the uSD");
+  if((PipelineState == PIPE_WAITING_FRAME) && (idx == PipelineIdx))
+  {
+    PipelineState = PIPE_DECODING;
+    PipelineDecodeTickStart = HAL_GetTick();
+
+    JPEG_Decode_DMA(&JPEG_Handle, (uint8_t *)ImageRawAddr[idx], ImageRawSize[idx], JPEG_OUTPUT_DATA_BUFFER);
+  }
 }
 
 /**
-  * @brief  Copy the Decoded image to the display Frame buffer.
+  * @brief  Called from decode_dma.c's HAL_JPEG_DecodeCpltCallback() - i.e. in
+  *         JPEG_IRQn interrupt context. Decode just finished: record its
+  *         duration, then kick off the (also non-blocking) DMA2D fill for
+  *         this image. No busy-wait anywhere in this chain.
+  * @retval None
+  */
+void JPEG_Pipeline_OnDecodeComplete(void)
+{
+  DecodeTime_ms[PipelineIdx] = HAL_GetTick() - PipelineDecodeTickStart;
+
+  HAL_JPEG_GetInfo(&JPEG_Handle, &JPEG_Info);
+
+  /* A frame wider/taller than the LCD would make (LCD_X_Size - ImageWidth)
+     underflow (both are unsigned), wrapping into a huge offset instead of
+     going negative - clamp to top-left instead of trusting the source to
+     always match the LCD size exactly. */
+  PipelineXPos = (JPEG_Info.ImageWidth  < LCD_X_Size) ? (LCD_X_Size - JPEG_Info.ImageWidth)  / 2 : 0;
+  PipelineYPos = (JPEG_Info.ImageHeight < LCD_Y_Size) ? (LCD_Y_Size - JPEG_Info.ImageHeight) / 2 : 0;
+
+  PipelineCopyTickStart = HAL_GetTick();
+  PipelineState = PIPE_FILLING;
+
+  DMA2D_StartFill((uint32_t *)LcdFrameBufferAddr[PipelineIdx], (uint16_t)LCD_X_Size, (uint16_t)LCD_Y_Size, 0xFFFFFFFF);
+}
+
+/**
+  * @brief  DMA2D transfer-complete interrupt callback (DMA2D_IRQn context).
+  *         Fires once for the fill and once for the copy, per image, and
+  *         chains straight to the next pipeline step.
+  * @retval None
+  */
+static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d)
+{
+  if(PipelineState == PIPE_FILLING)
+  {
+    PipelineState = PIPE_COPYING;
+
+    DMA2D_StartCopy((uint32_t *)JPEG_OUTPUT_DATA_BUFFER, (uint32_t *)LcdFrameBufferAddr[PipelineIdx],
+                     (uint16_t)PipelineXPos, (uint16_t)PipelineYPos,
+                     (uint16_t)JPEG_Info.ImageWidth, (uint16_t)JPEG_Info.ImageHeight, JPEG_Info.ChromaSubsampling);
+  }
+  else if(PipelineState == PIPE_COPYING)
+  {
+    uint32_t finishedIdx = PipelineIdx;
+    uint32_t tick_start, cyc_start;
+
+    CopyTime_ms[PipelineIdx] = HAL_GetTick() - PipelineCopyTickStart;
+
+    /* This frame's buffer is fully converted and ready - display it now */
+    tick_start = HAL_GetTick();
+    cyc_start  = DWT->CYCCNT;
+
+    BSP_LCD_SetLayerAddress(0, 0, LcdFrameBufferAddr[PipelineIdx]);
+
+    SwitchTime_ms[PipelineIdx] = HAL_GetTick() - tick_start;
+    SwitchTime_us[PipelineIdx] = (DWT->CYCCNT - cyc_start) / (SystemCoreClock / 1000000U);
+
+    /* This slot's raw JPEG bytes are fully consumed - free it so
+       network_stream.c can write the next incoming frame into it. */
+    FrameReady[finishedIdx] = 0;
+
+    PipelineIdx = (PipelineIdx + 1) % NB_IMAGES;
+
+    if(FrameReady[PipelineIdx])
+    {
+      /* The next frame already arrived while we were busy - go straight
+         into decoding it. */
+      PipelineState = PIPE_DECODING;
+      PipelineDecodeTickStart = HAL_GetTick();
+      JPEG_Decode_DMA(&JPEG_Handle, (uint8_t *)ImageRawAddr[PipelineIdx], ImageRawSize[PipelineIdx], JPEG_OUTPUT_DATA_BUFFER);
+    }
+    else
+    {
+      /* Nothing new yet - park here until JPEG_Pipeline_OnFrameReceived()
+         wakes the pipeline back up. */
+      PipelineState = PIPE_WAITING_FRAME;
+    }
+  }
+}
+
+/**
+  * @brief  Start a non-blocking ARGB8888 solid-color fill (DMA2D R2M mode).
+  * @param  pDst: Pointer to destination buffer (own framebuffer for one image)
+  * @param  xsize: buffer width
+  * @param  ysize: buffer height
+  * @param  color: ARGB8888 fill color (e.g. 0xFFFFFFFF for white)
+  * @retval None
+  */
+static void DMA2D_StartFill(uint32_t *pDst, uint16_t xsize, uint16_t ysize, uint32_t color)
+{
+  DMA2D_Handle.Init.Mode         = DMA2D_R2M;
+  DMA2D_Handle.Init.ColorMode    = DMA2D_OUTPUT_ARGB8888;
+  DMA2D_Handle.Init.OutputOffset = 0;
+  DMA2D_Handle.Instance          = DMA2D;
+  DMA2D_Handle.XferCpltCallback  = DMA2D_XferCpltCallback;
+
+  HAL_DMA2D_Init(&DMA2D_Handle);
+  HAL_DMA2D_Start_IT(&DMA2D_Handle, color, (uint32_t)pDst, xsize, ysize);
+}
+
+/**
+  * @brief  Start a non-blocking YCbCr->ARGB8888 copy (DMA2D M2M+PFC mode).
   * @param  pSrc: Pointer to source buffer
   * @param  pDst: Pointer to destination buffer
   * @param  x: destination Horizontal offset.
   * @param  y: destination Vertical offset.
   * @param  xsize: image width
   * @param  ysize: image Height
-  * @param  ChromaSampling : YCbCr Chroma sampling : 4:2:0, 4:2:2 or 4:4:4  
+  * @param  ChromaSampling : YCbCr Chroma sampling : 4:2:0, 4:2:2 or 4:4:4
   * @retval None
   */
-static void DMA2D_CopyBuffer(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_t y, uint16_t xsize, uint16_t ysize, uint32_t ChromaSampling)
-{   
-  
-  uint32_t cssMode = DMA2D_CSS_420, inputLineOffset = 0;  
-  uint32_t destination = 0; 
+static void DMA2D_StartCopy(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_t y, uint16_t xsize, uint16_t ysize, uint32_t ChromaSampling)
+{
+  uint32_t cssMode = DMA2D_CSS_420, inputLineOffset = 0;
+  uint32_t destination = 0;
   uint32_t xSize = 0;
-  
+
   if(ChromaSampling == JPEG_420_SUBSAMPLING)
   {
     cssMode = DMA2D_CSS_420;
-    
+
     inputLineOffset = xsize % 16;
     if(inputLineOffset != 0)
     {
       inputLineOffset = 16 - inputLineOffset;
-    }    
+    }
   }
   else if(ChromaSampling == JPEG_444_SUBSAMPLING)
   {
     cssMode = DMA2D_NO_CSS;
-    
+
     inputLineOffset = xsize % 8;
     if(inputLineOffset != 0)
     {
       inputLineOffset = 8 - inputLineOffset;
-    }    
+    }
   }
   else if(ChromaSampling == JPEG_422_SUBSAMPLING)
   {
     cssMode = DMA2D_CSS_422;
-    
+
     inputLineOffset = xsize % 16;
     if(inputLineOffset != 0)
     {
       inputLineOffset = 16 - inputLineOffset;
-    }      
-  }  
-  
-  /*##-1- Configure the DMA2D Mode, Color Mode and output offset #############*/ 
+    }
+  }
+
+  /*##-1- Configure the DMA2D Mode, Color Mode and output offset #############*/
   DMA2D_Handle.Init.Mode         = DMA2D_M2M_PFC;
   DMA2D_Handle.Init.ColorMode    = DMA2D_OUTPUT_ARGB8888;
-  DMA2D_Handle.Init.OutputOffset = LCD_X_Size - xsize; 
-  DMA2D_Handle.Init.AlphaInverted = DMA2D_REGULAR_ALPHA;  /* No Output Alpha Inversion*/  
-  DMA2D_Handle.Init.RedBlueSwap   = DMA2D_RB_REGULAR;     /* No Output Red & Blue swap */  
-  
+  DMA2D_Handle.Init.OutputOffset = LCD_X_Size - xsize;
+  DMA2D_Handle.Init.AlphaInverted = DMA2D_REGULAR_ALPHA;  /* No Output Alpha Inversion*/
+  DMA2D_Handle.Init.RedBlueSwap   = DMA2D_RB_REGULAR;     /* No Output Red & Blue swap */
+
   /*##-2- DMA2D Callbacks Configuration ######################################*/
-  DMA2D_Handle.XferCpltCallback  = NULL;
-  
+  DMA2D_Handle.XferCpltCallback  = DMA2D_XferCpltCallback;
+
   /*##-3- Foreground Configuration ###########################################*/
   DMA2D_Handle.LayerCfg[1].AlphaMode = DMA2D_REPLACE_ALPHA;
   DMA2D_Handle.LayerCfg[1].InputAlpha = 0xFF;
@@ -443,25 +621,19 @@ static void DMA2D_CopyBuffer(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_
   DMA2D_Handle.LayerCfg[1].ChromaSubSampling = cssMode;
   DMA2D_Handle.LayerCfg[1].InputOffset = inputLineOffset;
   DMA2D_Handle.LayerCfg[1].RedBlueSwap = DMA2D_RB_REGULAR; /* No ForeGround Red/Blue swap */
-  DMA2D_Handle.LayerCfg[1].AlphaInverted = DMA2D_REGULAR_ALPHA; /* No ForeGround Alpha inversion */  
-  
-  DMA2D_Handle.Instance          = DMA2D; 
-  
+  DMA2D_Handle.LayerCfg[1].AlphaInverted = DMA2D_REGULAR_ALPHA; /* No ForeGround Alpha inversion */
+
+  DMA2D_Handle.Instance          = DMA2D;
+
   /*##-4- DMA2D Initialization     ###########################################*/
   HAL_DMA2D_Init(&DMA2D_Handle);
   HAL_DMA2D_ConfigLayer(&DMA2D_Handle, 1);
-  
-  /*##-5-  copy the new decoded frame to the LCD Frame buffer ################*/
+
+  /*##-5-  copy the new decoded frame to the LCD Frame buffer, non-blocking ##*/
   BSP_LCD_GetXSize(0, &xSize);
   destination = (uint32_t)pDst + ((y * xSize) + x) * 4;
 
-  HAL_DMA2D_Start(&DMA2D_Handle, (uint32_t)pSrc, destination, xsize, ysize);
-  HAL_DMA2D_PollForTransfer(&DMA2D_Handle, 25);  /* wait for the previous DMA2D transfer to ends */
-}
-
-static void SD_Initialize(void)
-{  
-  BSP_SD_Init(0);
+  HAL_DMA2D_Start_IT(&DMA2D_Handle, (uint32_t)pSrc, destination, xsize, ysize);
 }
 
 #ifdef USE_FULL_ASSERT

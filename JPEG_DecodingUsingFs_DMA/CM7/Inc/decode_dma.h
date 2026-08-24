@@ -28,8 +28,9 @@
 /* Exported constants --------------------------------------------------------*/
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
-uint32_t JPEG_Decode_DMA(JPEG_HandleTypeDef *hjpeg, FIL *file, uint32_t DestAddress);
-uint32_t JPEG_InputHandler(JPEG_HandleTypeDef *hjpeg);
+uint32_t JPEG_Decode_DMA(JPEG_HandleTypeDef *hjpeg, uint8_t *pJpegBuffer, uint32_t JpegBufferSize, uint32_t DestAddress);
+
+extern uint32_t Jpeg_HWDecodingEnd;
 
 #endif /* __DECODE_DMA_H */
 

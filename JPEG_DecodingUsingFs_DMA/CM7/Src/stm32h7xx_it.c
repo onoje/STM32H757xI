@@ -33,6 +33,7 @@
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 extern JPEG_HandleTypeDef    JPEG_Handle;
+extern DMA2D_HandleTypeDef   DMA2D_Handle;
 extern SD_HandleTypeDef hsd_sdmmc[SD_INSTANCES_NBR];
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
@@ -155,6 +156,16 @@ void SysTick_Handler(void)
 void JPEG_IRQHandler(void)
 {
   HAL_JPEG_IRQHandler(&JPEG_Handle);
+}
+
+/**
+  * @brief  This function handles DMA2D interrupt request.
+  * @param  None
+  * @retval None
+  */
+void DMA2D_IRQHandler(void)
+{
+  HAL_DMA2D_IRQHandler(&DMA2D_Handle);
 }
 
 /**
