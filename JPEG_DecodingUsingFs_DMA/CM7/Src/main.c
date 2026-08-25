@@ -40,16 +40,16 @@ static uint32_t LCD_X_Size = 0, LCD_Y_Size= 0;
 /* Raw JPEG buffers and their bookkeeping - shared with network_stream.c,
    which fills them from the incoming TCP stream (see the extern
    declarations there). Not static for that reason. */
-const uint32_t ImageRawAddr[NB_IMAGES] = { JPEG_RAW_BUFFER_0, JPEG_RAW_BUFFER_1 };
+const uint32_t ImageRawAddr[NB_IMAGES] = { JPEG_RAW_BUFFER_0, JPEG_RAW_BUFFER_1, JPEG_RAW_BUFFER_2 };
 volatile uint32_t ImageRawSize[NB_IMAGES];
 
 /* Set by network_stream.c once a full frame has landed in ImageRawAddr[idx];
    cleared by the pipeline once it's done reading that slot, freeing it for
    the network to reuse. This is the only handshake between the two files. */
-volatile uint8_t FrameReady[NB_IMAGES] = { 0, 0 };
+volatile uint8_t FrameReady[NB_IMAGES] = { 0, 0, 0 };
 
 /* Each image gets its own dedicated, already-converted ARGB8888 framebuffer */
-static const uint32_t LcdFrameBufferAddr[NB_IMAGES] = { LCD_FRAME_BUFFER, LCD_FRAME_BUFFER_1 };
+static const uint32_t LcdFrameBufferAddr[NB_IMAGES] = { LCD_FRAME_BUFFER, LCD_FRAME_BUFFER_1, LCD_FRAME_BUFFER_2 };
 
 /* Decode duration of each image, in ms (HAL_GetTick() / SysTick based).
    Watch these in STM32CubeIDE's Live Expressions view while running. */

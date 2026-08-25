@@ -38,22 +38,32 @@
 #define LCD_FRAME_BUFFER         0xD0000000
 #define JPEG_OUTPUT_DATA_BUFFER  0xD0200000
 
-/* Second, dedicated final ARGB8888 framebuffer - each incoming frame gets
-   converted into its own buffer once, then the LTDC layer address is
-   switched between them instead of re-copying/re-converting on every
-   display swap */
+/* Second and third dedicated final ARGB8888 framebuffers - each incoming
+   frame gets converted into its own buffer once, then the LTDC layer
+   address is switched between them instead of re-copying/re-converting on
+   every display swap. A third buffer (not just two) means DMA2D is never
+   writing into the buffer LTDC most recently switched away from - LTDC's
+   layer address change only actually takes effect at the next VSYNC, not
+   instantly, so with only two buffers DMA2D could start overwriting a
+   buffer LTDC is still finishing a scan-out of, causing visible tearing.
+   With three, a buffer gets a full extra pipeline cycle to be certainly
+   done with before it's written again. */
 #define LCD_FRAME_BUFFER_1       0xD0800000
+#define LCD_FRAME_BUFFER_2       0xD0C00000
 
 /* Raw (still-compressed) JPEG bytes received over the network, kept in
-   SDRAM. Two buffers so the network can fill one while the other is being
-   decoded/displayed - see FrameReady[] in main.c. */
+   SDRAM. Three buffers (not just two) give the network an extra frame's
+   worth of slack to land in before a slot must be dropped, if a frame
+   arrives while the pipeline is still mid-decode on an earlier one - see
+   FrameReady[] in main.c. */
 #define JPEG_RAW_BUFFER_0        0xD0400000
 #define JPEG_RAW_BUFFER_1        0xD0600000
+#define JPEG_RAW_BUFFER_2        0xD0A00000
 #define JPEG_RAW_BUFFER_MAX_SIZE (2 * 1024 * 1024)
 
 /* Number of rotating raw-JPEG / framebuffer slots. Shared between main.c
    (owns the pipeline) and network_stream.c (fills the raw buffers). */
-#define NB_IMAGES 2
+#define NB_IMAGES 3
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
