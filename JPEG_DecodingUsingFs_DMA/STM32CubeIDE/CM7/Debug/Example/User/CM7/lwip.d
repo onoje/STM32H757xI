@@ -1,6 +1,6 @@
 Example/User/CM7/lwip.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.c \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.h \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.h \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/opt.h \
  ../../../CM7/LWIP/Target/lwipopts.h ../../../CM7/Inc/main.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
@@ -115,7 +115,7 @@ Example/User/CM7/lwip.o: \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/timeouts.h \
  ../../../CM7/LWIP/Target/ethernetif.h \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/init.h
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.h:
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/App/lwip.h:
 ../../../Middlewares/Third_Party/LwIP/src/include/lwip/opt.h:
 ../../../CM7/LWIP/Target/lwipopts.h:
 ../../../CM7/Inc/main.h:

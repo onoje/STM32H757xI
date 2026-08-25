@@ -429,6 +429,11 @@ static void LCD_BriefDisplay(void)
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_BLUE);
   UTIL_LCD_FillRect(0, 0, LCD_X_Size, 112, UTIL_LCD_COLOR_BLUE);  
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+  /* UTIL_LCD's DrawProp starts with pFont == NULL (no default font) until
+     the first UTIL_LCD_SetFont() call - drawing text before that call
+     dereferences a NULL font pointer. Must come before the first
+     DisplayStringAt below, not after it. */
+  UTIL_LCD_SetFont(&Font24);
   UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"JPEG Decoding from a live Ethernet stream", CENTER_MODE);
   UTIL_LCD_SetFont(&Font16);
   UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"Waiting for a TCP connection on port 5001...", CENTER_MODE);

@@ -1,5 +1,5 @@
 Drivers/STM32H7xx_HAL_Driver/stm32h7xx_hal_dma.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma.c \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../../../CM7/Inc/stm32h7xx_hal_conf.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_rcc.h \

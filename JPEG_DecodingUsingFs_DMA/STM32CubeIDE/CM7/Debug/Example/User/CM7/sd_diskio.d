@@ -1,5 +1,5 @@
 Example/User/CM7/sd_diskio.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/Src/sd_diskio.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/sd_diskio.c \
  ../../../Middlewares/Third_Party/FatFs/src/ff_gen_drv.h \
  ../../../Middlewares/Third_Party/FatFs/src/diskio.h \
  ../../../Middlewares/Third_Party/FatFs/src/integer.h \

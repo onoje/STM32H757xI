@@ -1,5 +1,5 @@
 Example/User/CM4/main.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM4/Src/main.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM4/Src/main.c \
  ../../../CM4/Inc/main.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../../../CM4/Inc/stm32h7xx_hal_conf.h \

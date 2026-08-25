@@ -67,8 +67,8 @@ all: main-build
 main-build: JPEG_DecodingUsingFs_DMA_CM7.elf secondary-outputs
 
 # Tool invocations
-JPEG_DecodingUsingFs_DMA_CM7.elf JPEG_DecodingUsingFs_DMA_CM7.map: $(OBJS) $(USER_OBJS) C:\Users\Onoje\STM32Cube\Example\JPEG_DecodingUsingFs_DMA\STM32CubeIDE\CM7\STM32H747XIHX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "JPEG_DecodingUsingFs_DMA_CM7.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\Onoje\STM32Cube\Example\JPEG_DecodingUsingFs_DMA\STM32CubeIDE\CM7\STM32H747XIHX_FLASH.ld" --specs=nosys.specs -Wl,-Map="JPEG_DecodingUsingFs_DMA_CM7.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+JPEG_DecodingUsingFs_DMA_CM7.elf JPEG_DecodingUsingFs_DMA_CM7.map: $(OBJS) $(USER_OBJS) C:\Users\Onoje\Desktop\HAVELSAN_STM32\JPEG_DecodingUsingFs_DMA\STM32CubeIDE\CM7\STM32H747XIHX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "JPEG_DecodingUsingFs_DMA_CM7.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\Onoje\Desktop\HAVELSAN_STM32\JPEG_DecodingUsingFs_DMA\STM32CubeIDE\CM7\STM32H747XIHX_FLASH.ld" --specs=nosys.specs -Wl,-Map="JPEG_DecodingUsingFs_DMA_CM7.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

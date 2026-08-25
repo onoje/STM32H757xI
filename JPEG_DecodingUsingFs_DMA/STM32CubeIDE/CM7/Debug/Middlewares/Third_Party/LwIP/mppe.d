@@ -1,5 +1,5 @@
 Middlewares/Third_Party/LwIP/mppe.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Middlewares/Third_Party/LwIP/src/netif/ppp/mppe.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Middlewares/Third_Party/LwIP/src/netif/ppp/mppe.c \
  ../../../Middlewares/Third_Party/LwIP/src/include/netif/ppp/ppp_opts.h \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/opt.h \
  ../../../CM7/LWIP/Target/lwipopts.h ../../../CM7/Inc/main.h \

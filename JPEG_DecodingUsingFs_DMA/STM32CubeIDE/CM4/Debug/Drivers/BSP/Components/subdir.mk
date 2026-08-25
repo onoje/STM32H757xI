@@ -5,10 +5,10 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/adv7533/adv7533_reg.c \
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c \
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152.c \
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152_reg.c 
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/adv7533/adv7533_reg.c \
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c \
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152.c \
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152_reg.c 
 
 OBJS += \
 ./Drivers/BSP/Components/adv7533_reg.o \
@@ -24,13 +24,13 @@ C_DEPS += \
 
 
 # Each subdirectory must supply rules for building sources it contributes
-Drivers/BSP/Components/adv7533_reg.o: C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/adv7533/adv7533_reg.c Drivers/BSP/Components/subdir.mk
+Drivers/BSP/Components/adv7533_reg.o: C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/adv7533/adv7533_reg.c Drivers/BSP/Components/subdir.mk
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32H747I_EVAL -DSTM32H747xx -DCORE_CM4 -DUSE_HAL_DRIVER -DUSE_PWR_DIRECT_SMPS_SUPPLY -DUSE_IOEXPANDER -c -I../../../Common/Inc -I../../../CM4/Inc -I../../../Drivers/CMSIS/Include -I../../../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../../../Drivers/STM32H7xx_HAL_Driver/Inc -I../../../Drivers/BSP/STM32H747I-EVAL -I../../../Drivers/BSP/Components/Common -I../../../Utilities/lcd -I../../../Utilities/Fonts -I../../../Utilities/CPU -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
-Drivers/BSP/Components/is42s32800j.o: C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c Drivers/BSP/Components/subdir.mk
+Drivers/BSP/Components/is42s32800j.o: C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c Drivers/BSP/Components/subdir.mk
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32H747I_EVAL -DSTM32H747xx -DCORE_CM4 -DUSE_HAL_DRIVER -DUSE_PWR_DIRECT_SMPS_SUPPLY -DUSE_IOEXPANDER -c -I../../../Common/Inc -I../../../CM4/Inc -I../../../Drivers/CMSIS/Include -I../../../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../../../Drivers/STM32H7xx_HAL_Driver/Inc -I../../../Drivers/BSP/STM32H747I-EVAL -I../../../Drivers/BSP/Components/Common -I../../../Utilities/lcd -I../../../Utilities/Fonts -I../../../Utilities/CPU -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
-Drivers/BSP/Components/mfxstm32l152.o: C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152.c Drivers/BSP/Components/subdir.mk
+Drivers/BSP/Components/mfxstm32l152.o: C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152.c Drivers/BSP/Components/subdir.mk
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32H747I_EVAL -DSTM32H747xx -DCORE_CM4 -DUSE_HAL_DRIVER -DUSE_PWR_DIRECT_SMPS_SUPPLY -DUSE_IOEXPANDER -c -I../../../Common/Inc -I../../../CM4/Inc -I../../../Drivers/CMSIS/Include -I../../../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../../../Drivers/STM32H7xx_HAL_Driver/Inc -I../../../Drivers/BSP/STM32H747I-EVAL -I../../../Drivers/BSP/Components/Common -I../../../Utilities/lcd -I../../../Utilities/Fonts -I../../../Utilities/CPU -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
-Drivers/BSP/Components/mfxstm32l152_reg.o: C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152_reg.c Drivers/BSP/Components/subdir.mk
+Drivers/BSP/Components/mfxstm32l152_reg.o: C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/mfxstm32l152/mfxstm32l152_reg.c Drivers/BSP/Components/subdir.mk
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_STM32H747I_EVAL -DSTM32H747xx -DCORE_CM4 -DUSE_HAL_DRIVER -DUSE_PWR_DIRECT_SMPS_SUPPLY -DUSE_IOEXPANDER -c -I../../../Common/Inc -I../../../CM4/Inc -I../../../Drivers/CMSIS/Include -I../../../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../../../Drivers/STM32H7xx_HAL_Driver/Inc -I../../../Drivers/BSP/STM32H747I-EVAL -I../../../Drivers/BSP/Components/Common -I../../../Utilities/lcd -I../../../Utilities/Fonts -I../../../Utilities/CPU -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "$@"
 
 clean: clean-Drivers-2f-BSP-2f-Components

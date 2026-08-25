@@ -1,5 +1,5 @@
 Example/User/CM7/decode_dma.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/Src/decode_dma.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/decode_dma.c \
  ../../../CM7/Inc/decode_dma.h ../../../CM7/Inc/main.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../../../CM7/Inc/stm32h7xx_hal_conf.h \

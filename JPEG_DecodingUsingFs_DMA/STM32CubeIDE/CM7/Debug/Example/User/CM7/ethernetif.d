@@ -1,5 +1,5 @@
 Example/User/CM7/ethernetif.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.c \
  ../../../CM7/Inc/main.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../../../CM7/Inc/stm32h7xx_hal_conf.h \
@@ -106,7 +106,7 @@ Example/User/CM7/ethernetif.o: \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/prot/ip4.h \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/prot/etharp.h \
  ../../../Middlewares/Third_Party/LwIP/src/include/lwip/ethip6.h \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.h \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.h \
  ../../../Drivers/BSP/Components/lan8742/lan8742.h
 ../../../CM7/Inc/main.h:
 ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:
@@ -215,5 +215,5 @@ Example/User/CM7/ethernetif.o: \
 ../../../Middlewares/Third_Party/LwIP/src/include/lwip/prot/ip4.h:
 ../../../Middlewares/Third_Party/LwIP/src/include/lwip/prot/etharp.h:
 ../../../Middlewares/Third_Party/LwIP/src/include/lwip/ethip6.h:
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.h:
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/LWIP/Target/ethernetif.h:
 ../../../Drivers/BSP/Components/lan8742/lan8742.h:

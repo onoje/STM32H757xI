@@ -1,6 +1,6 @@
 Drivers/BSP/Components/is42s32800j.o: \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c \
- C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.h \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.c \
+ C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.h \
  ../../../Common/Inc/is42s32800j_conf.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../../../CM4/Inc/stm32h7xx_hal_conf.h \
@@ -37,7 +37,7 @@ Drivers/BSP/Components/is42s32800j.o: \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_fmc.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart.h \
  ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart_ex.h
-C:/Users/Onoje/STM32Cube/Example/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.h:
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/Drivers/BSP/Components/is42s32800j/is42s32800j.h:
 ../../../Common/Inc/is42s32800j_conf.h:
 ../../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:
 ../../../CM4/Inc/stm32h7xx_hal_conf.h:
