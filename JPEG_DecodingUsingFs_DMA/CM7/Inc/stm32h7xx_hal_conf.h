@@ -160,7 +160,15 @@
 
 /* ########################### Ethernet Configuration ######################### */
 #define ETH_TX_DESC_CNT         4  /* number of Ethernet Tx DMA descriptors */
-#define ETH_RX_DESC_CNT         4  /* number of Ethernet Rx DMA descriptors */
+/* RTP/UDP has no flow control - the PC blasts 20-60 fragment packets per
+   video frame back to back, with nothing pacing them the way TCP's window
+   did. This board only polls the RX ring roughly once per millisecond
+   (MX_LWIP_Process() in main.c's while(1), woken by the 1ms SysTick), so a
+   whole frame's worth of packets can arrive faster than one poll interval.
+   4 descriptors let 3 packets of a burst survive before the rest are lost
+   at the hardware level - raised well past a single frame's worst-case
+   fragment count so a full burst fits before the next drain. */
+#define ETH_RX_DESC_CNT         32 /* number of Ethernet Rx DMA descriptors */
 
 #define ETH_MAC_ADDR0    ((uint8_t)0x02)
 #define ETH_MAC_ADDR1    ((uint8_t)0x00)

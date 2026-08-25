@@ -88,7 +88,10 @@ typedef struct
 } RxBuff_t;
 
 /* Memory Pool Declaration */
-#define ETH_RX_BUFFER_CNT             12U
+/* Sized well above ETH_RX_DESC_CNT (stm32h7xx_hal_conf.h) - RTP/UDP's
+   bursty, unpaced fragment traffic needs headroom beyond "just enough for
+   the descriptor ring" (see the comment there). */
+#define ETH_RX_BUFFER_CNT             48U
 LWIP_MEMPOOL_DECLARE(RX_POOL, ETH_RX_BUFFER_CNT, sizeof(RxBuff_t), "Zero-copy RX PBUF pool");
 
 /* Variable Definitions */

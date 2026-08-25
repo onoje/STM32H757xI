@@ -436,7 +436,7 @@ static void LCD_BriefDisplay(void)
   UTIL_LCD_SetFont(&Font24);
   UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"JPEG Decoding from a live Ethernet stream", CENTER_MODE);
   UTIL_LCD_SetFont(&Font16);
-  UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"Waiting for a TCP connection on port 5001...", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"Waiting for RTP/JPEG packets on UDP port 5001...", CENTER_MODE);
   UTIL_LCD_DisplayStringAt(0, LINE(6), (uint8_t *)"Board IP: 192.168.1.20", CENTER_MODE);
 }
 

@@ -1,12 +1,23 @@
 """
 send_webcam_stream.py
 
-Captures frames from the PC's webcam and streams them, as JPEG images, over
-a raw TCP socket to the STM32H747I-EVAL board running the
-JPEG_DecodingUsingFs_DMA + Ethernet firmware.
+Captures frames from the PC's webcam and streams them to the
+STM32H747I-EVAL board as real RTP (RFC 3550) carrying RFC 2435 "RTP Payload
+Format for JPEG-compressed Video" - the same wire format used by ffmpeg,
+gstreamer, and IP cameras, not a custom protocol.
 
-Wire format: each frame is [4-byte big-endian length][that many JPEG bytes].
-The board (see CM7/Src/network_stream.c) parses exactly this format.
+Neither quantization nor Huffman tables are sent in the packets. Both are
+skipped legitimately, per RFC 2435 itself:
+
+  - Quantization tables: RFC 2435 lets a Q byte of 1-99 stand in for the
+    tables. Both this sender and the board derive the exact same tables
+    from Q using the standard IJG/libjpeg scaling formula (see
+    CM7/Src/network_stream.c on the board side).
+  - Huffman tables: OpenCV's JPEG encoder (libjpeg-turbo), used without the
+    IMWRITE_JPEG_OPTIMIZE flag, already encodes with the fixed JPEG-standard
+    default Huffman tables (ITU-T T.81 Annex K) - the same ones the board
+    reconstructs on its end. Never set IMWRITE_JPEG_OPTIMIZE=1 or this
+    breaks.
 
 Requirements:
     pip install opencv-python
@@ -17,6 +28,7 @@ Usage:
 """
 
 import cv2
+import random
 import socket
 import struct
 import time
@@ -35,7 +47,20 @@ TARGET_HEIGHT = 480
 CAPTURE_WIDTH = 800
 CAPTURE_HEIGHT = 480
 
-JPEG_QUALITY = 80  # 0-100, higher = better quality but bigger frames
+# RFC 2435 Q byte: must stay 1-99 so both ends derive quantization tables
+# from this number instead of transmitting them. Also the actual JPEG
+# encode quality, must stay identical to the Q byte for both sides to
+# agree on what was used.
+JPEG_QUALITY = 80
+
+# RFC 2435 Type byte: 0 = 4:2:2, 1 = 4:2:0. libjpeg-turbo's default for a
+# 3-channel color image is 4:2:0 - this must match what the encoder
+# actually produced or the board decodes the chroma planes wrong.
+JPEG_TYPE = 1
+
+RTP_PAYLOAD_TYPE = 26           # RFC 3551 static payload type for JPEG
+RTP_CLOCK_HZ = 90000            # RFC 2435 mandates a 90kHz RTP clock
+MAX_FRAGMENT_PAYLOAD = 1400     # stays under the 1500-byte Ethernet MTU
 
 WINDOW_NAME = "Sending to board (press q or close the window to quit)"
 
@@ -63,16 +88,88 @@ def compute_crop(width, height):
     return x0, y0, crop_w, crop_h
 
 
-def connect():
-    while True:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((BOARD_IP, BOARD_PORT))
-            print(f"Connected to board at {BOARD_IP}:{BOARD_PORT}")
-            return s
-        except OSError as e:
-            print(f"Connection failed ({e}), retrying in 2s...")
-            time.sleep(2)
+def find_scan_data(jpeg_bytes):
+    """Strips a JPEG down to just its entropy-coded scan data - the only
+    part RFC 2435 actually transmits. Everything else (DQT/SOF/DHT/the SOS
+    header itself) is reconstructed on the board from the Type/Q/Width/
+    Height fields instead.
+
+    Walks marker segments one at a time (using each segment's own length
+    field to skip it) rather than searching for the raw byte pattern
+    FF DA - unlike entropy-coded scan data, header segment payloads (DQT
+    tables, Huffman tables, ...) are ordinary bytes with no byte-stuffing
+    rule protecting them, so FF DA can appear there by pure coincidence
+    and a naive search would cut the frame at the wrong point."""
+    if jpeg_bytes[0:2] != b"\xff\xd8":
+        return None
+
+    pos = 2
+    n = len(jpeg_bytes)
+
+    while pos < n - 1:
+        if jpeg_bytes[pos] != 0xFF:
+            return None  # desynced - not a marker where one was expected
+
+        marker = jpeg_bytes[pos + 1]
+        pos += 2
+
+        if marker == 0xDA:  # SOS - scan data starts right after this header
+            seg_len = (jpeg_bytes[pos] << 8) | jpeg_bytes[pos + 1]
+            scan_start = pos + seg_len
+
+            # A well-formed JPEG always ends with EOI (FF D9) as its last
+            # 2 bytes.
+            if jpeg_bytes[-2:] != b"\xff\xd9":
+                return None
+
+            return jpeg_bytes[scan_start:-2]
+
+        if marker == 0x01 or (0xD0 <= marker <= 0xD7):
+            continue  # markers with no length field/payload
+
+        seg_len = (jpeg_bytes[pos] << 8) | jpeg_bytes[pos + 1]
+        pos += seg_len
+
+    return None
+
+
+def build_rtp_header(seq, timestamp, ssrc, marker):
+    b0 = 0x80  # version=2, padding=0, extension=0, CSRC count=0
+    b1 = (0x80 if marker else 0x00) | RTP_PAYLOAD_TYPE
+    return struct.pack(">BBHII", b0, b1, seq & 0xFFFF, timestamp & 0xFFFFFFFF, ssrc)
+
+
+def build_jpeg_header(fragment_offset, width, height):
+    return struct.pack(
+        ">BBBBBBBB",
+        0,                               # type-specific
+        (fragment_offset >> 16) & 0xFF,
+        (fragment_offset >> 8) & 0xFF,
+        fragment_offset & 0xFF,
+        JPEG_TYPE,
+        JPEG_QUALITY,
+        width // 8,
+        height // 8,
+    )
+
+
+def send_frame_as_rtp(sock, scan_data, width, height, seq, timestamp, ssrc):
+    total = len(scan_data)
+    offset = 0
+
+    while offset < total:
+        chunk = scan_data[offset:offset + MAX_FRAGMENT_PAYLOAD]
+        is_last = (offset + len(chunk)) >= total
+
+        packet = (build_rtp_header(seq, timestamp, ssrc, is_last)
+                  + build_jpeg_header(offset, width, height)
+                  + chunk)
+        sock.sendto(packet, (BOARD_IP, BOARD_PORT))
+
+        seq = (seq + 1) & 0xFFFF
+        offset += len(chunk)
+
+    return seq
 
 
 def main():
@@ -97,7 +194,13 @@ def main():
           f"resizing to {TARGET_WIDTH}x{TARGET_HEIGHT} (fills the screen, "
           f"no squishing).")
 
-    sock = connect()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ssrc = random.getrandbits(32)
+    seq = random.getrandbits(16)
+    timestamp = random.getrandbits(32)
+    last_frame_time = time.monotonic()
+
+    print(f"Streaming RTP/JPEG to {BOARD_IP}:{BOARD_PORT} (SSRC={ssrc:#010x})")
 
     try:
         while True:
@@ -121,15 +224,13 @@ def main():
             if not ok:
                 continue
 
-            payload = encoded.tobytes()
-            header = struct.pack(">I", len(payload))
+            scan_data = find_scan_data(encoded.tobytes())
+            if scan_data:
+                now = time.monotonic()
+                timestamp = (timestamp + round((now - last_frame_time) * RTP_CLOCK_HZ)) & 0xFFFFFFFF
+                last_frame_time = now
 
-            try:
-                sock.sendall(header + payload)
-            except OSError as e:
-                print(f"Send failed ({e}), reconnecting...")
-                sock.close()
-                sock = connect()
+                seq = send_frame_as_rtp(sock, scan_data, TARGET_WIDTH, TARGET_HEIGHT, seq, timestamp, ssrc)
 
             cv2.imshow(WINDOW_NAME, frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
