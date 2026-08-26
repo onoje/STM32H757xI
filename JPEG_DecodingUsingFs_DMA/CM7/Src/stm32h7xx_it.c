@@ -169,6 +169,23 @@ void DMA2D_IRQHandler(void)
 }
 
 /**
+  * @brief  This function handles LTDC interrupt request. NVIC already had
+  *         LTDC_IRQn enabled (BSP_LCD_Init() turns it on for FIFO
+  *         underrun/transfer error reporting), but nothing serviced it
+  *         until HAL_LTDC_Reload() started being used for tear-free layer
+  *         address switches (see main.c) - that reload genuinely fires
+  *         LTDC_IT_RR every time, and with no handler here it would fall
+  *         through to the default infinite-loop handler the first time it
+  *         did.
+  * @param  None
+  * @retval None
+  */
+void LTDC_IRQHandler(void)
+{
+  HAL_LTDC_IRQHandler(&hlcd_ltdc);
+}
+
+/**
   * @brief  This function handles MDMA interrupt request.
   * @param  None
   * @retval None

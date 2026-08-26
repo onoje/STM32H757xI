@@ -85,7 +85,16 @@ typedef enum
   PIPE_WAITING_FRAME = 0,
   PIPE_DECODING,
   PIPE_FILLING,
-  PIPE_COPYING
+  PIPE_COPYING,
+  /* Requested the LTDC switch to this frame's buffer at the next vertical
+     blanking, but the display hasn't confirmed it actually happened yet
+     (HAL_LTDC_ReloadEventCallback() hasn't fired). More buffers alone
+     don't guarantee tear-free display if decode+fill+copy keeps
+     outrunning the screen's own refresh rate indefinitely - only waiting
+     for each switch to be confirmed before reusing a buffer does, because
+     it's the only thing that actually paces the pipeline to the display's
+     real speed instead of assuming N buffers is always enough headroom. */
+  PIPE_WAITING_RELOAD
 } PipelineState_t;
 
 static volatile PipelineState_t PipelineState = PIPE_WAITING_FRAME;
@@ -161,7 +170,7 @@ int main(void)
   HAL_NVIC_EnableIRQ(DMA2D_IRQn);
 
 
-  /*##-2- LCD Configuration ##################################################*/  
+  /*##-2- LCD Configuration ##################################################*/
   /* Initialize the LCD   */
 
   lcd_status = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
@@ -169,9 +178,18 @@ int main(void)
   {
     Error_Handler();
   }
-  
-  UTIL_LCD_SetFuncDriver(&LCD_Driver);   
-  UTIL_LCD_SetLayer(0); 
+
+  /* BSP_LCD_SetLayerAddress() defaults to an *immediate* LTDC reload -
+     the new framebuffer address can take effect mid-scanout, splitting
+     the visible screen between old and new frame content (diagonal/
+     staircase tearing). BSP_LCD_RELOAD_NONE makes it only stage the
+     address change; DMA2D_XferCpltCallback() below then explicitly
+     requests HAL_LTDC_Reload(..., LTDC_RELOAD_VERTICAL_BLANKING) so the
+     switch only actually happens between frames. */
+  BSP_LCD_Relaod(0, BSP_LCD_RELOAD_NONE);
+
+  UTIL_LCD_SetFuncDriver(&LCD_Driver);
+  UTIL_LCD_SetLayer(0);
 
 
   /* Get the LCD Width */
@@ -504,19 +522,56 @@ static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d)
   }
   else if(PipelineState == PIPE_COPYING)
   {
-    uint32_t finishedIdx = PipelineIdx;
     uint32_t tick_start, cyc_start;
 
     CopyTime_ms[PipelineIdx] = HAL_GetTick() - PipelineCopyTickStart;
 
-    /* This frame's buffer is fully converted and ready - display it now */
+    /* This frame's buffer is fully converted - request it be shown, but
+       don't touch any buffer/pipeline bookkeeping yet. Advancing here
+       (like this code used to) assumes N buffers is always enough
+       headroom before this same slot is written again - that assumption
+       breaks the moment decode+fill+copy keeps outrunning the display's
+       own refresh rate, no matter how many buffers there are. Actually
+       waiting for HAL_LTDC_ReloadEventCallback() below, which only fires
+       once the display has genuinely applied this switch, is what
+       guarantees a buffer is never overwritten while still on screen. */
     tick_start = HAL_GetTick();
     cyc_start  = DWT->CYCCNT;
 
+    /* Stages the new address only (BSP_LCD_RELOAD_NONE set at init) - it
+       does not take visual effect until the reload below actually happens,
+       so this alone can never race with what LTDC is currently scanning
+       out. */
     BSP_LCD_SetLayerAddress(0, 0, LcdFrameBufferAddr[PipelineIdx]);
+
+    /* Request the switch for the *next* vertical blanking interval, not
+       right now - this is what actually prevents the diagonal/staircase
+       tearing: without it (or with the default immediate reload), the
+       switch could land in the middle of an active scanout, so the top
+       part of that refresh shows the old frame and the bottom part
+       shows the new one. */
+    HAL_LTDC_Reload(&hlcd_ltdc, LTDC_RELOAD_VERTICAL_BLANKING);
 
     SwitchTime_ms[PipelineIdx] = HAL_GetTick() - tick_start;
     SwitchTime_us[PipelineIdx] = (DWT->CYCCNT - cyc_start) / (SystemCoreClock / 1000000U);
+
+    PipelineState = PIPE_WAITING_RELOAD;
+  }
+}
+
+/**
+  * @brief  LTDC reload-complete interrupt callback (LTDC_IRQn context,
+  *         overrides the HAL's default weak no-op). Fires once the display
+  *         has genuinely started scanning out the buffer requested in
+  *         DMA2D_XferCpltCallback() above - only past this point is that
+  *         buffer's *previous* slot guaranteed safe to overwrite again.
+  * @retval None
+  */
+void HAL_LTDC_ReloadEventCallback(LTDC_HandleTypeDef *hltdc)
+{
+  if(PipelineState == PIPE_WAITING_RELOAD)
+  {
+    uint32_t finishedIdx = PipelineIdx;
 
     /* This slot's raw JPEG bytes are fully consumed - free it so
        network_stream.c can write the next incoming frame into it. */
