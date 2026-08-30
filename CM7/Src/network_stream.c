@@ -26,6 +26,7 @@
 extern const uint32_t ImageRawAddr[NB_IMAGES];
 extern volatile uint32_t ImageRawSize[NB_IMAGES];
 extern volatile uint8_t FrameReady[NB_IMAGES];
+extern volatile uint32_t FrameSeqNum[NB_IMAGES];
 
 /* Implemented in main.c: kicks the decode pipeline if it was idle waiting
    specifically on this slot. */
@@ -268,6 +269,11 @@ static uint32_t HeaderLen;          /* JFIF header length for this frame */
 static uint32_t ExpectedFragOffset; /* next Fragment Offset we should see */
 static uint8_t  FrameCorrupt;       /* a fragment was lost - drop the rest */
 
+/* Monotonic completion counter - see FrameSeqNum[] in main.c. Starts at 1
+   so slot 0's default FrameSeqNum[]=0 never looks like "the newest frame"
+   before any real frame has ever completed. */
+static uint32_t NextFrameSeqNum = 1;
+
 static void Network_ResetParser(void)
 {
   CurrentWriteIdx     = NB_IMAGES;
@@ -394,6 +400,7 @@ static void Network_UdpRecvCallback(void *arg, struct udp_pcb *pcb, struct pbuf 
       ((uint8_t *)ImageRawAddr[CurrentWriteIdx])[endPos + 1U] = 0xD9U; /* EOI */
 
       ImageRawSize[CurrentWriteIdx] = endPos + 2U;
+      FrameSeqNum[CurrentWriteIdx] = NextFrameSeqNum++;
       FrameReady[CurrentWriteIdx]   = 1U;
       JPEG_Pipeline_OnFrameReceived(CurrentWriteIdx);
     }

@@ -1,0 +1,12 @@
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:143:5:main	2
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:283:13:SystemClock_Config	4
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:362:13:MPU_Config	1
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:462:13:CPU_CACHE_Enable	5
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:476:13:LCD_BriefDisplay	1
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:513:13:Pipeline_StartDecodeOfFreshest	10
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:564:6:JPEG_Pipeline_OnFrameReceived	1
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:585:6:JPEG_Pipeline_OnDecodeComplete	3
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:612:13:DMA2D_XferCpltCallback	2
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:665:6:HAL_LTDC_ReloadEventCallback	2
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:700:13:DMA2D_StartCopy	7
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/main.c:795:6:Error_Handler	1

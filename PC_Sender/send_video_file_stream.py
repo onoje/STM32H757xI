@@ -39,20 +39,21 @@ import time
 BOARD_IP = "192.168.1.20"
 BOARD_PORT = 5001
 
-# Video file to stream - lives next to this script, so this works no
-# matter what directory you run the script from.
-VIDEO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "video0_800_480.avi")
+# TEMP DIAGNOSTIC (diagonal-tear investigation, portrait test): pointed at
+# the 480x800 portrait file and TARGET_WIDTH/HEIGHT swapped to match - the
+# board is currently built with LCD_ORIENTATION_PORTRAIT (see main.c) for
+# this same test. To revert to the normal landscape setup: change VIDEO_PATH
+# back to "video0_800_480.avi" and TARGET_WIDTH/TARGET_HEIGHT back to 800/480.
+VIDEO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "video0_480_800.avi")
 
 # Loop back to the start once the file ends, instead of exiting - useful
 # for a continuous demo on the board.
 LOOP_VIDEO = True
 
 # The exact size sent to the board - it doesn't scale anything itself, so
-# every frame must already be precisely this size. The file is already
-# 800x480 per its name, so compute_crop()/resize below end up as a no-op
-# unless that's ever not true (kept as a safety net, not a requirement).
-TARGET_WIDTH = 800
-TARGET_HEIGHT = 480
+# every frame must already be precisely this size.
+TARGET_WIDTH = 480
+TARGET_HEIGHT = 800
 
 # RFC 2435 Q byte: must stay 1-99 so both ends derive quantization tables
 # from this number instead of transmitting them. Also the actual JPEG

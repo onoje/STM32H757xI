@@ -48,6 +48,17 @@ volatile uint32_t ImageRawSize[NB_IMAGES];
    the network to reuse. This is the only handshake between the two files. */
 volatile uint8_t FrameReady[NB_IMAGES] = { 0, 0, 0 };
 
+/* Monotonic completion order, stamped by network_stream.c alongside
+   FrameReady[idx]=1 (see FrameSeqNum there). Lets the pipeline tell which
+   ready slot is the *newest* one when more than one is waiting - without
+   this, the pipeline always decoded slots in strict idx order, so if it
+   ever fell even slightly behind the network's delivery rate, the screen
+   would keep showing genuinely stale frames (older ones still waiting
+   their turn) while newer arrivals got dropped for lack of a free slot -
+   bounded staleness, but very visible, and *worse* with more buffers
+   (more room to fall behind before anything gets dropped). */
+volatile uint32_t FrameSeqNum[NB_IMAGES] = { 0, 0, 0 };
+
 /* Each image gets its own dedicated, already-converted ARGB8888 framebuffer */
 static const uint32_t LcdFrameBufferAddr[NB_IMAGES] = { LCD_FRAME_BUFFER, LCD_FRAME_BUFFER_1, LCD_FRAME_BUFFER_2 };
 
@@ -67,6 +78,17 @@ volatile uint32_t SwitchTime_ms[NB_IMAGES] = {0};
    HAL_GetTick() (1ms resolution) can't measure an operation this fast */
 volatile uint32_t SwitchTime_us[NB_IMAGES] = {0};
 
+/* TEMP DIAGNOSTIC (portrait-mode stutter investigation): DecodeTime_ms/
+   CopyTime_ms/SwitchTime_us only cover the pipeline's own compute steps -
+   none of them measure how long PIPE_WAITING_RELOAD actually waits for
+   HAL_LTDC_ReloadEventCallback() to confirm the display applied the
+   switch. If that wait is normally ~1 VSYNC period but is taking much
+   longer in portrait mode, the compute-step timers would look completely
+   normal (as they've measured) while the real achieved frame rate is far
+   lower - which would look exactly like stutter. */
+volatile uint32_t ReloadWaitTime_ms[NB_IMAGES] = {0};
+static uint32_t PipelineReloadWaitTickStart = 0;
+
 JPEG_HandleTypeDef    JPEG_Handle;
 
 /* Not static: stm32h7xx_it.c's DMA2D_IRQHandler() needs to reach this handle */
@@ -84,16 +106,15 @@ typedef enum
 {
   PIPE_WAITING_FRAME = 0,
   PIPE_DECODING,
-  PIPE_FILLING,
   PIPE_COPYING,
   /* Requested the LTDC switch to this frame's buffer at the next vertical
      blanking, but the display hasn't confirmed it actually happened yet
      (HAL_LTDC_ReloadEventCallback() hasn't fired). More buffers alone
-     don't guarantee tear-free display if decode+fill+copy keeps
-     outrunning the screen's own refresh rate indefinitely - only waiting
-     for each switch to be confirmed before reusing a buffer does, because
-     it's the only thing that actually paces the pipeline to the display's
-     real speed instead of assuming N buffers is always enough headroom. */
+     don't guarantee tear-free display if decode+copy keeps outrunning the
+     screen's own refresh rate indefinitely - only waiting for each switch
+     to be confirmed before reusing a buffer does, because it's the only
+     thing that actually paces the pipeline to the display's real speed
+     instead of assuming N buffers is always enough headroom. */
   PIPE_WAITING_RELOAD
 } PipelineState_t;
 
@@ -106,8 +127,8 @@ static uint32_t PipelineCopyTickStart = 0;
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void LCD_BriefDisplay(void);
+static void Pipeline_StartDecodeOfFreshest(void);
 static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d);
-static void DMA2D_StartFill(uint32_t *pDst, uint16_t xsize, uint16_t ysize, uint32_t color);
 static void DMA2D_StartCopy(uint32_t *pSrc, uint32_t *pDst, uint16_t x, uint16_t y, uint16_t xsize, uint16_t ysize, uint32_t ChromaSampling);
 static void MPU_Config(void);
 static void CPU_CACHE_Enable(void);
@@ -173,7 +194,19 @@ int main(void)
   /*##-2- LCD Configuration ##################################################*/
   /* Initialize the LCD   */
 
-  lcd_status = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+  /* TEMP DIAGNOSTIC (diagonal-tear investigation): native PORTRAIT
+     (480x800) instead of the usual LANDSCAPE (800x480) - this skips the
+     MADCTL row/column exchange entirely (OTM8009A_Init() only sends that
+     command for LANDSCAPE), testing whether the tear is tied to that
+     remapping. BSP_LCD_Init(Instance, Orientation) can't be used for this:
+     its 2-argument wrapper always passes the hardcoded LCD_DEFAULT_WIDTH/
+     HEIGHT (800/480) to BSP_LCD_InitEx() regardless of Orientation, so
+     Orientation alone would reach OTM8009A_Init() correctly but LTDC/DSI
+     would still be configured for 800x480 - calling BSP_LCD_InitEx()
+     directly with the swapped dimensions is required.
+     To revert: change back to
+       lcd_status = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE); */
+  lcd_status = BSP_LCD_InitEx(0, LCD_ORIENTATION_PORTRAIT, LTDC_PIXEL_FORMAT_ARGB8888, 480, 800);
   if(lcd_status != BSP_ERROR_NONE)
   {
     Error_Handler();
@@ -442,47 +475,111 @@ static void CPU_CACHE_Enable(void)
   */
 static void LCD_BriefDisplay(void)
 {
+  /* Laid out for the board's current 480-wide portrait orientation (see
+     LCD_ORIENTATION_PORTRAIT in main()) - the original single-line title
+     was sized for the 800-wide landscape screen and got clipped/cramped
+     ("...live Et") once the screen narrowed to 480px. Wrapped across two
+     lines and given explicit Y positions (LCD_Y_Size=800 leaves plenty of
+     headroom) instead of the LINE() macro, so nothing overlaps. */
   UTIL_LCD_Clear(UTIL_LCD_COLOR_WHITE);
   UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLUE);
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_BLUE);
-  UTIL_LCD_FillRect(0, 0, LCD_X_Size, 112, UTIL_LCD_COLOR_BLUE);  
+  UTIL_LCD_FillRect(0, 0, LCD_X_Size, 190, UTIL_LCD_COLOR_BLUE);
   UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
   /* UTIL_LCD's DrawProp starts with pFont == NULL (no default font) until
      the first UTIL_LCD_SetFont() call - drawing text before that call
      dereferences a NULL font pointer. Must come before the first
      DisplayStringAt below, not after it. */
   UTIL_LCD_SetFont(&Font24);
-  UTIL_LCD_DisplayStringAt(0, LINE(2), (uint8_t *)"JPEG Decoding from a live Ethernet stream", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 20,  (uint8_t *)"JPEG Decoding from a", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 50,  (uint8_t *)"live Ethernet stream", CENTER_MODE);
   UTIL_LCD_SetFont(&Font16);
-  UTIL_LCD_DisplayStringAt(0, LINE(5), (uint8_t *)"Waiting for RTP/JPEG packets on UDP port 5001...", CENTER_MODE);
-  UTIL_LCD_DisplayStringAt(0, LINE(6), (uint8_t *)"Board IP: 192.168.1.20", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 100, (uint8_t *)"Waiting for RTP/JPEG packets", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 120, (uint8_t *)"on UDP port 5001...", CENTER_MODE);
+  UTIL_LCD_DisplayStringAt(0, 150, (uint8_t *)"Board IP: 192.168.1.20", CENTER_MODE);
+}
+
+/**
+  * @brief  Picks the *newest* ready slot (highest FrameSeqNum) to decode
+  *         next, instead of following NB_IMAGES in strict rotation - any
+  *         other slot that was also sitting ready gets discarded (freed
+  *         without ever being decoded) since it's now known to be stale.
+  *         Only actually starts a decode if the pipeline is genuinely idle
+  *         (PIPE_WAITING_FRAME); otherwise does nothing (a decode already
+  *         in flight will re-check for the freshest slot itself once it
+  *         finishes, from HAL_LTDC_ReloadEventCallback() below).
+  * @retval None
+  */
+static void Pipeline_StartDecodeOfFreshest(void)
+{
+  uint32_t i, freshestIdx = NB_IMAGES;
+
+  if(PipelineState != PIPE_WAITING_FRAME)
+  {
+    return;
+  }
+
+  for(i = 0; i < NB_IMAGES; i++)
+  {
+    if(FrameReady[i] && ((freshestIdx == NB_IMAGES) || (FrameSeqNum[i] > FrameSeqNum[freshestIdx])))
+    {
+      freshestIdx = i;
+    }
+  }
+
+  if(freshestIdx == NB_IMAGES)
+  {
+    return; /* nothing ready yet */
+  }
+
+  for(i = 0; i < NB_IMAGES; i++)
+  {
+    if((i != freshestIdx) && FrameReady[i])
+    {
+      /* Older frame that arrived and sat waiting while the pipeline was
+         busy - discarding it (instead of decoding it in turn) is what
+         keeps the display caught up to "now" instead of trailing behind
+         by however many frames piled up. */
+      FrameReady[i] = 0;
+    }
+  }
+
+  PipelineIdx   = freshestIdx;
+  PipelineState = PIPE_DECODING;
+  PipelineDecodeTickStart = HAL_GetTick();
+
+  JPEG_Decode_DMA(&JPEG_Handle, (uint8_t *)ImageRawAddr[freshestIdx], ImageRawSize[freshestIdx], JPEG_OUTPUT_DATA_BUFFER);
 }
 
 /**
   * @brief  Called from network_stream.c once a full JPEG frame has landed in
-  *         ImageRawAddr[idx]. Only actually kicks off a decode if the
-  *         pipeline was idle and specifically waiting on this slot - if the
-  *         pipeline is still busy with another frame, this one just sits
-  *         ready (FrameReady[idx] == 1) until the pipeline reaches it.
-  * @param  idx: which raw buffer slot just became ready
+  *         ImageRawAddr[idx]. If the pipeline is idle, this may kick off a
+  *         decode - not necessarily of idx itself, see
+  *         Pipeline_StartDecodeOfFreshest(). If the pipeline is still busy,
+  *         this frame just sits ready (FrameReady[idx] == 1) until then.
+  * @param  idx: which raw buffer slot just became ready (unused - kept for
+  *              interface/documentation clarity at the call site)
   * @retval None
   */
 void JPEG_Pipeline_OnFrameReceived(uint32_t idx)
 {
-  if((PipelineState == PIPE_WAITING_FRAME) && (idx == PipelineIdx))
-  {
-    PipelineState = PIPE_DECODING;
-    PipelineDecodeTickStart = HAL_GetTick();
-
-    JPEG_Decode_DMA(&JPEG_Handle, (uint8_t *)ImageRawAddr[idx], ImageRawSize[idx], JPEG_OUTPUT_DATA_BUFFER);
-  }
+  (void)idx;
+  Pipeline_StartDecodeOfFreshest();
 }
 
 /**
   * @brief  Called from decode_dma.c's HAL_JPEG_DecodeCpltCallback() - i.e. in
   *         JPEG_IRQn interrupt context. Decode just finished: record its
-  *         duration, then kick off the (also non-blocking) DMA2D fill for
+  *         duration, then kick off the (also non-blocking) DMA2D copy for
   *         this image. No busy-wait anywhere in this chain.
+  *
+  *         There used to be a DMA2D_StartFill() step here first, painting
+  *         the whole destination buffer white before the copy - that only
+  *         matters if the image is smaller than the LCD (letterboxing).
+  *         The PC senders always crop-to-fill so ImageWidth/Height equal
+  *         LCD_X_Size/Y_Size exactly; the copy below then overwrites every
+  *         pixel the fill touched anyway, so the fill was pure wasted time
+  *         on every single frame - removed on the mentor's call.
   * @retval None
   */
 void JPEG_Pipeline_OnDecodeComplete(void)
@@ -499,28 +596,22 @@ void JPEG_Pipeline_OnDecodeComplete(void)
   PipelineYPos = (JPEG_Info.ImageHeight < LCD_Y_Size) ? (LCD_Y_Size - JPEG_Info.ImageHeight) / 2 : 0;
 
   PipelineCopyTickStart = HAL_GetTick();
-  PipelineState = PIPE_FILLING;
+  PipelineState = PIPE_COPYING;
 
-  DMA2D_StartFill((uint32_t *)LcdFrameBufferAddr[PipelineIdx], (uint16_t)LCD_X_Size, (uint16_t)LCD_Y_Size, 0xFFFFFFFF);
+  DMA2D_StartCopy((uint32_t *)JPEG_OUTPUT_DATA_BUFFER, (uint32_t *)LcdFrameBufferAddr[PipelineIdx],
+                   (uint16_t)PipelineXPos, (uint16_t)PipelineYPos,
+                   (uint16_t)JPEG_Info.ImageWidth, (uint16_t)JPEG_Info.ImageHeight, JPEG_Info.ChromaSubsampling);
 }
 
 /**
   * @brief  DMA2D transfer-complete interrupt callback (DMA2D_IRQn context).
-  *         Fires once for the fill and once for the copy, per image, and
-  *         chains straight to the next pipeline step.
+  *         Fires once the copy is done and chains straight to the next
+  *         pipeline step.
   * @retval None
   */
 static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d)
 {
-  if(PipelineState == PIPE_FILLING)
-  {
-    PipelineState = PIPE_COPYING;
-
-    DMA2D_StartCopy((uint32_t *)JPEG_OUTPUT_DATA_BUFFER, (uint32_t *)LcdFrameBufferAddr[PipelineIdx],
-                     (uint16_t)PipelineXPos, (uint16_t)PipelineYPos,
-                     (uint16_t)JPEG_Info.ImageWidth, (uint16_t)JPEG_Info.ImageHeight, JPEG_Info.ChromaSubsampling);
-  }
-  else if(PipelineState == PIPE_COPYING)
+  if(PipelineState == PIPE_COPYING)
   {
     uint32_t tick_start, cyc_start;
 
@@ -555,6 +646,10 @@ static void DMA2D_XferCpltCallback(DMA2D_HandleTypeDef *hdma2d)
     SwitchTime_ms[PipelineIdx] = HAL_GetTick() - tick_start;
     SwitchTime_us[PipelineIdx] = (DWT->CYCCNT - cyc_start) / (SystemCoreClock / 1000000U);
 
+    /* TEMP DIAGNOSTIC: mark when the wait for reload confirmation starts -
+       see ReloadWaitTime_ms declaration above. */
+    PipelineReloadWaitTickStart = HAL_GetTick();
+
     PipelineState = PIPE_WAITING_RELOAD;
   }
 }
@@ -573,47 +668,22 @@ void HAL_LTDC_ReloadEventCallback(LTDC_HandleTypeDef *hltdc)
   {
     uint32_t finishedIdx = PipelineIdx;
 
+    /* TEMP DIAGNOSTIC: how long PIPE_WAITING_RELOAD actually waited here -
+       see ReloadWaitTime_ms declaration near the top of this file. */
+    ReloadWaitTime_ms[finishedIdx] = HAL_GetTick() - PipelineReloadWaitTickStart;
+
     /* This slot's raw JPEG bytes are fully consumed - free it so
        network_stream.c can write the next incoming frame into it. */
     FrameReady[finishedIdx] = 0;
 
-    PipelineIdx = (PipelineIdx + 1) % NB_IMAGES;
-
-    if(FrameReady[PipelineIdx])
-    {
-      /* The next frame already arrived while we were busy - go straight
-         into decoding it. */
-      PipelineState = PIPE_DECODING;
-      PipelineDecodeTickStart = HAL_GetTick();
-      JPEG_Decode_DMA(&JPEG_Handle, (uint8_t *)ImageRawAddr[PipelineIdx], ImageRawSize[PipelineIdx], JPEG_OUTPUT_DATA_BUFFER);
-    }
-    else
-    {
-      /* Nothing new yet - park here until JPEG_Pipeline_OnFrameReceived()
-         wakes the pipeline back up. */
-      PipelineState = PIPE_WAITING_FRAME;
-    }
+    /* Go straight into decoding the freshest frame that's ready now, if
+       any (discarding any others that piled up while busy) - otherwise
+       park in PIPE_WAITING_FRAME until JPEG_Pipeline_OnFrameReceived()
+       wakes the pipeline back up. No longer a fixed idx+1 rotation: see
+       Pipeline_StartDecodeOfFreshest(). */
+    PipelineState = PIPE_WAITING_FRAME;
+    Pipeline_StartDecodeOfFreshest();
   }
-}
-
-/**
-  * @brief  Start a non-blocking ARGB8888 solid-color fill (DMA2D R2M mode).
-  * @param  pDst: Pointer to destination buffer (own framebuffer for one image)
-  * @param  xsize: buffer width
-  * @param  ysize: buffer height
-  * @param  color: ARGB8888 fill color (e.g. 0xFFFFFFFF for white)
-  * @retval None
-  */
-static void DMA2D_StartFill(uint32_t *pDst, uint16_t xsize, uint16_t ysize, uint32_t color)
-{
-  DMA2D_Handle.Init.Mode         = DMA2D_R2M;
-  DMA2D_Handle.Init.ColorMode    = DMA2D_OUTPUT_ARGB8888;
-  DMA2D_Handle.Init.OutputOffset = 0;
-  DMA2D_Handle.Instance          = DMA2D;
-  DMA2D_Handle.XferCpltCallback  = DMA2D_XferCpltCallback;
-
-  HAL_DMA2D_Init(&DMA2D_Handle);
-  HAL_DMA2D_Start_IT(&DMA2D_Handle, color, (uint32_t)pDst, xsize, ysize);
 }
 
 /**

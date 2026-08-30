@@ -1,0 +1,7 @@
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:151:13:MakeQuantTable	40	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:166:17:WriteDQT	24	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:175:17:WriteDHT	32	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:202:17:JFIF_BuildHeader	168	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:277:13:Network_ResetParser	4	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:285:13:Network_UdpRecvCallback	88	static
+C:/Users/Onoje/Desktop/HAVELSAN_STM32/JPEG_DecodingUsingFs_DMA/CM7/Src/network_stream.c:417:6:Network_Stream_Init	16	static

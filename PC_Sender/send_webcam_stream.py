@@ -37,9 +37,11 @@ BOARD_IP = "192.168.1.20"
 BOARD_PORT = 5001
 
 # The exact size sent to the board - it doesn't scale anything itself, so
-# every frame must already be precisely this size.
-TARGET_WIDTH = 800
-TARGET_HEIGHT = 480
+# every frame must already be precisely this size. Matches the board's
+# current portrait build (see LCD_ORIENTATION_PORTRAIT in main.c) - revert
+# to 800/480 if the board is ever rebuilt back to landscape.
+TARGET_WIDTH = 480
+TARGET_HEIGHT = 800
 
 # Initial capture request - the camera may ignore this and give something
 # else entirely; compute_crop() below is what actually determines what gets
