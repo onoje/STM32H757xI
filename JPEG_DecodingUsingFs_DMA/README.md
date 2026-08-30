@@ -257,7 +257,7 @@ python "C:\Users\Desktop\HAVELSAN_STM32\JPEG_DecodingUsingFs_DMA\PC_Sender\send_
 | `decode_dma.c` | JPEG donanım kod çözücüsünü RAM'den besleyen callback'ler |
 | `main.c` | Pipeline durum makinesi, DMA2D/LTDC yönetimi, MPU/saat konfigürasyonu |
 
-## Köşegen Yırtılma ve Kasma
+## Köşegen Yırtılma ve Kasma — Tam Çözüm Öyküsü
 
 ### Sorun neydi
 
